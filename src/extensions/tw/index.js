@@ -24,7 +24,7 @@ class TurboWarpBlocks {
      */
     getInfo () {
         return {
-            id: 'ac',
+            id: 'tw',
             name: 'aftercode',
             color1: '#616161',
             color2: '#4b4b4b',
