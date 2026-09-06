@@ -152,6 +152,7 @@ class ExtensionManager {
             throw new Error(`Unknown extension: ${extensionId}`);
         }
 
+        this._removeExtensionBlocks(extensionId);
         this._loadedExtensions.delete(extensionId);
         if (!Array.from(this._loadedExtensions.values()).includes(serviceName)) {
             const workerId = +serviceName.split('.')[1];
@@ -159,6 +160,43 @@ class ExtensionManager {
             dispatch.removeServiceSync(serviceName);
         }
         dispatch.callSync('runtime', '_removeExtensionPrimitives', extensionId);
+    }
+
+    _removeExtensionBlocks (extensionId) {
+        const opcodePrefix = `${extensionId}_`;
+        this.runtime.targets.forEach(target => {
+            const blocks = target.blocks;
+            const extensionBlockIds = Object.keys(blocks._blocks).filter(blockId => {
+                const block = blocks._blocks[blockId];
+                return block.opcode && block.opcode.indexOf(opcodePrefix) === 0;
+            });
+
+            extensionBlockIds.forEach(blockId => {
+                const block = blocks._blocks[blockId];
+                if (!block || block.parent === null) {
+                    blocks.deleteBlock(blockId);
+                    return;
+                }
+
+                const parent = blocks._blocks[block.parent];
+                if (parent) {
+                    if (parent.next === blockId) {
+                        parent.next = block.next;
+                        if (block.next && blocks._blocks[block.next]) {
+                            blocks._blocks[block.next].parent = block.parent;
+                        }
+                    }
+                    Object.keys(parent.inputs).forEach(inputName => {
+                        const input = parent.inputs[inputName];
+                        if (input.block === blockId) input.block = null;
+                        if (input.shadow === blockId) input.shadow = null;
+                    });
+                }
+
+                block.next = null;
+                blocks.deleteBlock(blockId);
+            });
+        });
     }
 
     unloadAllExtensions () {
