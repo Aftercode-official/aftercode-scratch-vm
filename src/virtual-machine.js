@@ -51,6 +51,7 @@ const createRuntimeService = runtime => {
     const service = {};
     service._refreshExtensionPrimitives = runtime._refreshExtensionPrimitives.bind(runtime);
     service._registerExtensionPrimitives = runtime._registerExtensionPrimitives.bind(runtime);
+    service._removeExtensionPrimitives = runtime._removeExtensionPrimitives.bind(runtime);
     return service;
 };
 
@@ -126,6 +127,9 @@ class VirtualMachine extends EventEmitter {
         });
         this.runtime.on(Runtime.EXTENSION_ADDED, categoryInfo => {
             this.emit(Runtime.EXTENSION_ADDED, categoryInfo);
+        });
+        this.runtime.on(Runtime.EXTENSION_REMOVED, extensionId => {
+            this.emit(Runtime.EXTENSION_REMOVED, extensionId);
         });
         this.runtime.on(Runtime.EXTENSION_FIELD_ADDED, (fieldName, fieldImplementation) => {
             this.emit(Runtime.EXTENSION_FIELD_ADDED, fieldName, fieldImplementation);

@@ -143,6 +143,30 @@ class ExtensionManager {
         return this._loadedExtensions.has(extensionID);
     }
 
+    unloadExtension (extensionId) {
+        if (this.isBuiltinExtension(extensionId)) {
+            throw new Error(`Cannot unload built-in extension: ${extensionId}`);
+        }
+        const serviceName = this._loadedExtensions.get(extensionId);
+        if (!serviceName) {
+            throw new Error(`Unknown extension: ${extensionId}`);
+        }
+
+        this._loadedExtensions.delete(extensionId);
+        if (!Array.from(this._loadedExtensions.values()).includes(serviceName)) {
+            const workerId = +serviceName.split('.')[1];
+            delete this.workerURLs[workerId];
+            dispatch.removeServiceSync(serviceName);
+        }
+        dispatch.callSync('runtime', '_removeExtensionPrimitives', extensionId);
+    }
+
+    unloadAllExtensions () {
+        Array.from(this._loadedExtensions.keys())
+            .filter(extensionId => !this.isBuiltinExtension(extensionId))
+            .forEach(extensionId => this.unloadExtension(extensionId));
+    }
+
     /**
      * Determine whether an extension with a given ID is built in to the VM, such as pen.
      * Note that "core extensions" like motion will return false here.

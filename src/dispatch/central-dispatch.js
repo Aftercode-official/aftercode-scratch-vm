@@ -70,6 +70,14 @@ class CentralDispatch extends SharedDispatch {
         this.services[service] = provider;
     }
 
+    removeServiceSync (service) {
+        const provider = this.services[service];
+        if (provider && typeof provider.terminate === 'function') {
+            provider.terminate();
+        }
+        delete this.services[service];
+    }
+
     /**
      * Set a local object as the global provider of the specified service.
      * WARNING: Any method on the provider can be called from any worker within the dispatch system.

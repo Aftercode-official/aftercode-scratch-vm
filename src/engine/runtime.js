@@ -801,6 +801,10 @@ class Runtime extends EventEmitter {
         return 'EXTENSION_ADDED';
     }
 
+    static get EXTENSION_REMOVED () {
+        return 'EXTENSION_REMOVED';
+    }
+
     /**
      * Event name for reporting that an extension as asked for a custom field to be added
      * @const {string}
@@ -1105,6 +1109,23 @@ class Runtime extends EventEmitter {
             this._fillExtensionCategory(categoryInfo, extensionInfo);
 
             this.emit(Runtime.BLOCKSINFO_UPDATE, categoryInfo);
+        }
+    }
+
+    _removeExtensionPrimitives (extensionId) {
+        const categoryIndex = this._blockInfo.findIndex(info => info.id === extensionId);
+        if (categoryIndex !== -1) {
+            const categoryInfo = this._blockInfo[categoryIndex];
+            categoryInfo.blocks.forEach(blockInfo => {
+                if (blockInfo.json && blockInfo.json.type) {
+                    delete this._primitives[blockInfo.json.type];
+                    delete this._hats[blockInfo.json.type];
+                    delete this._flowing[blockInfo.json.type];
+                }
+            });
+            this._blockInfo.splice(categoryIndex, 1);
+            delete this[`ext_${extensionId}`];
+            this.emit(Runtime.EXTENSION_REMOVED, categoryInfo);
         }
     }
 
