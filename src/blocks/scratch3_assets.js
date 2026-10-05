@@ -1,5 +1,4 @@
 const Cast = require('../util/cast');
-const MathUtil = require('../util/math-util');
 
 class Scratch3AssetBlocks {
     constructor (runtime) {
@@ -30,118 +29,128 @@ class Scratch3AssetBlocks {
     }
 
     all (args, util) {
-        let target;
-        if (args.SPRITE === '_myself_') {
-            target = util.target;
-        } else if (args.SPRITE === 'Stage') {
-            target = this.runtime.getTargetForStage();
-        } else {
-            target = this.runtime.getSpriteTargetByName(args.SPRITE);
-        }
-
+        const target = this._getTarget(args.SPRITE, util);
         if (!target) return [];
 
-        return target.sprite?.assets ? target.sprite.assets.map(a => a.name) : [];
+        return this._getAssetsForTarget(target).map(asset => asset.name);
     }
 
     fileAsType (args, util) {
-        const index = this._getAssetIndex(args.ASSET_MENU, util);
-        if (index < 0) {
-            return '';
-        }
-        const asset = util.target.sprite.assets[index];
+        const asset = this._getAsset(args.ASSET_MENU, util);
+        if (!asset) return '';
+
         if (args.TYPE === 'data: uri') {
-            return asset.asset.encodeDataURI();
-        } else if (args.TYPE === 'text') {
-            return new TextDecoder().decode(asset.asset.data);
+            if (/^data:/i.test(asset.content)) return asset.content;
+            return `data:text/plain;charset=utf-8,${encodeURIComponent(asset.content)}`;
+        }
+        if (args.TYPE === 'text' && asset.type === 'text') {
+            return asset.content;
         }
         return '';
-
     }
 
     metadata (args, util) {
-        const index = this._getAssetIndex(args.ASSET_MENU, util);
-        if (index < 0) {
-            return '';
-        }
-        const asset = util.target.sprite.assets[index];
+        const asset = this._getAsset(args.ASSET_MENU, util);
+        if (!asset) return '';
+
         switch (args.TYPE) {
         case 'name': return asset.name;
-        case 'extension': return asset.dataFormat;
-        case 'content type': return asset.contentType;
-        case 'last modified': return new Date(asset.lastModified).toLocaleDateString();
-        case 'md5': return asset.assetId;
+        case 'extension': return this._getExtension(asset.name);
+        case 'content type': return asset.contentType || (asset.type === 'image' ? 'image/png' : 'text/plain');
+        case 'last modified': return new Date(asset.lastModified || 0).toLocaleDateString();
+        case 'md5': return asset.id;
         default: return '';
         }
     }
 
     set (args, util) {
-        const index = this._getAssetIndex(args.ASSET_MENU, util);
-        if (index < 0) {
-            return '';
-        }
+        const asset = this._getAsset(args.ASSET_MENU, util);
+        if (!asset) return;
+
         const value = Cast.toString(args.VALUE).trim();
-        const asset = util.target.sprite.assets[index];
+        let updatedAsset;
         switch (args.TYPE) {
-        case 'name': util.target.renameAsset(index, value, asset.dataFormat); break;
-        case 'extension': util.target.renameAsset(index, asset.name, value || 'file'); break;
-        case 'content type': asset.contentType = value; break;
+        case 'name': {
+            const extension = this._getExtension(asset.name);
+            const name = extension && !this._getExtension(value) ? `${value}.${extension}` : value;
+            updatedAsset = Object.assign({}, asset, {name});
+            break;
         }
+        case 'extension': {
+            const extension = value.replace(/^\./, '') || 'file';
+            const nameWithoutExtension = asset.name.replace(/\.[^.]*$/, '');
+            updatedAsset = Object.assign({}, asset, {name: `${nameWithoutExtension}.${extension}`});
+            break;
+        }
+        case 'content type':
+            updatedAsset = Object.assign({}, asset, {contentType: value});
+            break;
+        default:
+            return;
+        }
+        this._updateAsset(asset.id, updatedAsset);
     }
 
     write (args, util) {
-        const index = this._getAssetIndex(args.ASSET_MENU, util);
-        if (index < 0) {
-            return '';
-        }
+        const asset = this._getAsset(args.ASSET_MENU, util);
+        if (!asset) return;
+
         const value = Cast.toString(args.VALUE);
-        const assetObject = util.target.sprite.assets[index];
-        const asset = assetObject.asset;
+        let changes;
         if (args.TYPE === 'data: uri') {
-            const base64 = value.split(',')[1];
-            try {
-                const arr = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-                asset.setData(arr, assetObject.dataFormat, true);
-            } catch { /* empty */ }
+            if (!/^data:[^,]*,/i.test(value)) {
+                throw new Error('Asset content must be a valid data URI.');
+            }
+            changes = {
+                content: value,
+                type: /^data:image\//i.test(value) ? 'image' : 'text'
+            };
         } else {
-            asset.encodeTextData(value, assetObject.dataFormat, true);
+            changes = {
+                content: value,
+                type: 'text'
+            };
         }
-        assetObject.md5 = `${asset.assetId}.${assetObject.dataFormat}`;
-        assetObject.assetId = asset.assetId;
+        this._updateAsset(asset.id, Object.assign({}, asset, changes));
     }
 
-    _getAssetIndex (assetName, util) {
-        const assets = util.target.sprite.assets;
-        if (assets.length === 0) {
-            return -1;
-        }
-
-        const index = this.getAssetIndexByName(Cast.toString(assetName), util);
-        if (index !== -1) {
-            return index;
-        }
-
-        const oneIndexedIndex = parseInt(assetName, 10);
-        if (!isNaN(oneIndexedIndex)) {
-            return MathUtil.wrapClamp(oneIndexedIndex - 1, 0, assets.length - 1);
-        }
-
-        return -1;
+    _getTarget (spriteName, util) {
+        const name = Cast.toString(spriteName);
+        if (!name || name === '_myself_') return util.target;
+        if (name === 'Stage') return this.runtime.getTargetForStage();
+        return this.runtime.getSpriteTargetByName(name);
     }
 
-    getAssetIndexByName (assetName, util) {
-        const assets = util.target.sprite.assets;
-        for (let i = 0; i < assets.length; i++) {
-            if (assets[i].name === assetName) {
-                return i;
-            }
-        }
-        for (let i = 0; i < assets.length; i++) {
-            if (`${assets[i].name}.${assets[i].dataFormat}` === assetName) {
-                return i;
-            }
-        }
-        return -1;
+    _getTargetId (target) {
+        const originalClone = target.sprite && target.sprite.clones && target.sprite.clones[0];
+        return originalClone ? originalClone.id : target.id;
+    }
+
+    _getAssetsForTarget (target) {
+        const assets = this.runtime.extensionStorage.assets || [];
+        const targetId = this._getTargetId(target);
+        return assets.filter(asset => !asset.scopeId || asset.scopeId === targetId);
+    }
+
+    _getAsset (assetName, util) {
+        const name = Cast.toString(assetName);
+        const assets = this._getAssetsForTarget(util.target);
+        return assets.find(asset => asset.name === name || asset.id === name) || null;
+    }
+
+    _getExtension (name) {
+        const extensionMatch = /\.([^.]+)$/.exec(name);
+        return extensionMatch ? extensionMatch[1] : '';
+    }
+
+    _updateAsset (id, updatedAsset) {
+        const assets = this.runtime.extensionStorage.assets || [];
+        const updatedAssets = assets.map(asset => (
+            asset.id === id ? Object.assign({}, updatedAsset, {lastModified: Date.now()}) : asset
+        ));
+        this.runtime.extensionStorage.assets = updatedAssets;
+        this.runtime.emit('PROJECT_ASSETS_UPDATED', updatedAssets);
+        this.runtime.emitProjectChanged();
     }
 }
 
